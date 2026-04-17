@@ -1,0 +1,116 @@
+services:
+  nginx:
+    image: nginx:1.27-alpine
+    ports:
+      - "8777:80"
+    volumes:
+      - ./docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - static_data:/app/staticfiles:ro
+    depends_on:
+      - web
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    entrypoint: ["bash", "docker/entrypoint.sh"]
+    command: ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "4", "--timeout", "120"]
+    expose:
+      - "8000"
+    env_file:
+      - docker/.env
+    volumes:
+      - .:/app
+      - faiss_data:/app/faiss_index
+      - static_data:/app/staticfiles
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+    restart: unless-stopped
+
+  celery_worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    entrypoint: ["bash", "docker/entrypoint.sh"]
+    command: ["celery", "-A", "config", "worker", "--loglevel=info", "--concurrency=2"]
+    env_file:
+      - docker/.env
+    volumes:
+      - .:/app
+      - faiss_data:/app/faiss_index
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    env_file:
+      - docker/.env
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    expose:
+      - "5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-lectomlv}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    expose:
+      - "6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+  ollama_init:
+    image: curlimages/curl:latest
+    depends_on:
+      ollama:
+        condition: service_started
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        until curl -sf http://ollama:11434/api/tags > /dev/null 2>&1; do sleep 2; done
+        curl -sf http://ollama:11434/api/pull -d '{"name": "qwen2.5:14b"}' || true
+    restart: "no"
+
+volumes:
+  postgres_data:
+  redis_data:
+  ollama_data:
+  faiss_data:
+  static_data:
