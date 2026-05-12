@@ -6,6 +6,7 @@ services:
     volumes:
       - ./docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - static_data:/app/staticfiles:ro
+      - /media/mmlab/hdd/hbmun/clips:/data/clips:ro
     depends_on:
       - web
     restart: unless-stopped
@@ -24,6 +25,8 @@ services:
       - .:/app
       - faiss_data:/app/faiss_index
       - static_data:/app/staticfiles
+      - /media/mmlab/hdd/hbmun/videos:/data/videos:ro
+      - /media/mmlab/hdd/hbmun/clips:/data/clips
     depends_on:
       postgres:
         condition: service_healthy
@@ -44,6 +47,8 @@ services:
     volumes:
       - .:/app
       - faiss_data:/app/faiss_index
+      - /media/mmlab/hdd/hbmun/videos:/data/videos:ro
+      - /media/mmlab/hdd/hbmun/clips:/data/clips
     depends_on:
       postgres:
         condition: service_healthy

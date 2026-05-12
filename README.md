@@ -11,6 +11,8 @@
 - **Grounded RAG** — 출처 기반 답변 생성, 모든 문장에 `[S#]` 인용 강제
 - **Faithfulness 검증** — LLM이 생성한 답변을 다시 검증하여 근거 없는 문장 탐지
 - **구간 검색 / 요약 / 추천** — 3가지 쿼리 유형 지원
+- **영상 클립 추출** — 인용된 영상 출처 구간을 ffmpeg으로 잘라 클립 생성
+- **클립 머지** — 생성된 클립들을 하나의 mp4로 합치기
 - **외부 JSON 자동 변환** — PPTX 슬라이드·영상 자막 등 다양한 형식 자동 감지 및 임포트
 - **비동기 처리** — Celery Worker가 LLM 추론과 벡터 인덱싱을 백그라운드 수행
 - **데모 대시보드** — 브라우저에서 바로 쿼리·업로드·결과 확인 가능
@@ -52,21 +54,19 @@ cd lectomlv-llm
 
 # 2. 환경변수
 cp docker/.env.example docker/.env
-# docker/.env에서 DJANGO_SECRET_KEY 등 수정
 
 # 3. 빌드 & 실행
 docker compose up -d --build
 
 # 4. DB 마이그레이션
-docker compose exec web python manage.py makemigrations
 docker compose exec web python manage.py migrate
 
 # 5. Ollama 모델 다운로드 확인 (최초 실행 시 자동, 수동도 가능)
 docker compose exec ollama ollama pull qwen2.5:14b
 
 # 6. 접속
-open http://localhost:8777/          # 데모 대시보드
-open http://localhost:8777/api/      # API Root (Browsable UI)
+open http://localhost:8777/
+open http://localhost:8777/api/
 ```
 
 > 최초 실행 시 Ollama가 모델을 자동 다운로드합니다 (10분+ 소요).
@@ -75,10 +75,12 @@ open http://localhost:8777/api/      # API Root (Browsable UI)
 ## 기본 워크플로우
 
 ```
-1. 강의 데이터 임포트   POST /api/lectures/bulk-import/   → 벡터 인덱싱 자동 시작
+1. 강의 데이터 임포트   POST /api/lectures/bulk-import/      → 벡터 인덱싱 자동 시작
 2. 인덱싱 완료 확인     GET  /api/llm/tasks/{task_id}/
-3. LLM 쿼리 전송       POST /api/llm/query/              → 비동기 처리 시작
-4. 결과 조회            GET  /api/llm/query/{id}/          → Grounded 답변 + 출처
+3. LLM 쿼리 전송       POST /api/llm/query/                 → 비동기 처리 시작
+4. 결과 조회            GET  /api/llm/query/{id}/             → Grounded 답변 + 출처
+5. 영상 클립 자르기     POST /api/llm/query/{id}/clip/        → 인용 구간 ffmpeg 클리핑
+6. 클립 합치기          POST /api/llm/query/{id}/merge/       → 클립 하나로 머지
 ```
 
 ## LLM 모델 사양
@@ -118,6 +120,15 @@ Ollama를 통해 양자화된(Q4) 모델을 사용합니다.
 | GET | `/api/llm/tasks/{task_id}/` | 태스크 상태 확인 |
 | GET | `/api/llm/models/` | 사용 가능 모델 목록 |
 
+### 영상 클립
+
+| Method | Endpoint | 설명 |
+|--------|----------|------|
+| POST | `/api/llm/query/{id}/clip/` | 인용된 영상 구간을 ffmpeg으로 클리핑 |
+| POST | `/api/llm/query/{id}/merge/` | 생성된 클립들을 하나의 mp4로 머지 |
+
+생성된 클립과 머지 파일은 `http://서버:8777/clips/{파일명}` 으로 직접 다운로드할 수 있습니다.
+
 ## 외부에서 배치 업로드
 
 서버가 아닌 다른 컴퓨터에서 강의 데이터를 한꺼번에 업로드할 수 있습니다.
@@ -127,7 +138,6 @@ Ollama를 통해 양자화된(Q4) 모델을 사용합니다.
 ```bash
 SERVER="http://서버IP:8777"
 
-# 내부 형식 (직접 지정)
 curl -s -X POST "$SERVER/api/lectures/bulk-import/" \
   -H "Content-Type: application/json" \
   -d '{
@@ -139,7 +149,6 @@ curl -s -X POST "$SERVER/api/lectures/bulk-import/" \
     ]
   }' | python3 -m json.tool
 
-# 외부 형식 (자동 변환 — PPTX 슬라이드 + 영상 자막 혼합 JSON)
 curl -s -X POST "$SERVER/api/lectures/bulk-import/" \
   -H "Content-Type: application/json" \
   -d @CAD기초.json | python3 -m json.tool
@@ -153,7 +162,6 @@ from pathlib import Path
 
 SERVER = "http://서버IP:8777"
 
-# JSON 파일 일괄 업로드
 for f in sorted(Path("./data").glob("*.json")):
     print(f"Uploading: {f.name}")
     data = f.read_text(encoding="utf-8")
@@ -169,7 +177,6 @@ for f in sorted(Path("./data").glob("*.json")):
     else:
         print(f"  FAIL — {result}")
 
-# 쿼리 + 폴링
 resp = requests.post(f"{SERVER}/api/llm/query/", json={
     "query_text": "인공지능과 머신러닝의 차이가 뭐야?",
     "query_type": "search",
@@ -187,7 +194,28 @@ while True:
 print(r["result_text"])
 ```
 
-> 외부 JSON(PPTX slides + video segments, course 래퍼 등)은 서버에서 자동 감지·변환합니다.
+## 영상 클립 디렉터리 설정
+
+`docker-compose.yml`에서 원본 영상 경로와 클립 저장 경로를 bind mount로 지정합니다.
+
+```yaml
+services:
+  web:
+    volumes:
+      - /호스트/원본영상/경로:/data/videos:ro
+      - /호스트/클립저장/경로:/data/clips
+
+  celery_worker:
+    volumes:
+      - /호스트/원본영상/경로:/data/videos:ro
+      - /호스트/클립저장/경로:/data/clips
+
+  nginx:
+    volumes:
+      - /호스트/클립저장/경로:/data/clips:ro
+```
+
+컨테이너 내부 경로(`/data/videos`, `/data/clips`)는 `docker/.env`의 `VIDEO_SOURCE_DIR` / `VIDEO_CLIPS_DIR` 로 변경할 수 있습니다.
 
 ## 기술 스택
 
@@ -197,6 +225,7 @@ print(r["result_text"])
 | 비동기 작업 | Celery + Redis |
 | LLM 서빙 | Ollama (NVIDIA GPU) |
 | 벡터 검색 | FAISS (CPU) + sentence-transformers |
+| 영상 처리 | ffmpeg (imageio-ffmpeg 정적 바이너리) |
 | 데이터베이스 | PostgreSQL 16 |
 | 리버스 프록시 | Nginx |
 | 컨테이너 | Docker Compose (NVIDIA runtime) |
@@ -222,7 +251,8 @@ lectomlv-llm/
 │   │   └── services/
 │   │       ├── ollama_client.py    # Ollama REST API 클라이언트
 │   │       ├── embedding_service.py # FAISS 벡터 임베딩 (싱글턴)
-│   │       └── rag_service.py      # Grounded RAG 파이프라인
+│   │       ├── rag_service.py      # Grounded RAG 파이프라인
+│   │       └── video_clip_service.py # ffmpeg 클립 생성·머지
 │   └── demo/                       # 데모 대시보드
 │       ├── views.py
 │       ├── urls.py
@@ -268,7 +298,6 @@ docker compose restart celery_worker
 ```bash
 nvidia-smi
 docker run --rm --gpus all nvidia/cuda:12.0-base nvidia-smi
-# GPU 없이 실행하려면 docker-compose.yml에서 ollama의 deploy 섹션 제거
 ```
 
 ### DB 마이그레이션 문제

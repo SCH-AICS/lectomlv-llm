@@ -329,6 +329,92 @@
     .toast-success { background: var(--success); color: #fff; }
     .toast-error { background: var(--error); color: #fff; }
     @keyframes slideIn { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+    /* 영상 클립 섹션 */
+    .clip-section {
+      margin-top: 1.5rem;
+      border-top: 1px solid var(--border);
+      padding-top: 1.2rem;
+    }
+    .clip-section-title {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.8rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .clip-card {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.9rem 1rem;
+      margin-bottom: 0.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+    }
+    .clip-card.clip-success { border-left: 3px solid var(--accent); }
+    .clip-card.clip-not_found { border-left: 3px solid var(--warning); opacity: 0.65; }
+    .clip-card.clip-failed { border-left: 3px solid var(--error); opacity: 0.65; }
+    .clip-info { display: flex; flex-direction: column; gap: 0.25rem; flex: 1; min-width: 0; }
+    .clip-meta {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+    .clip-filename {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 380px;
+    }
+    .clip-time {
+      color: var(--accent);
+      font-family: monospace;
+      font-size: 0.9rem;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .clip-status {
+      padding: 0.15rem 0.55rem;
+      border-radius: 12px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .clip-status-success { background: var(--accent); color: var(--bg); }
+    .clip-status-not_found { background: var(--warning); color: var(--bg); }
+    .clip-status-failed { background: var(--error); color: #fff; }
+    .clip-status-skipped { background: var(--border); color: var(--text-muted); }
+    .clip-actions { display: flex; gap: 0.5rem; flex-shrink: 0; }
+    .btn-download {
+      padding: 0.4rem 0.9rem;
+      background: var(--accent);
+      color: var(--bg);
+      border: none;
+      border-radius: 6px;
+      font-size: 0.83rem;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+      transition: opacity 0.2s;
+    }
+    .btn-download:hover { opacity: 0.85; }
+    .clip-loading {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      color: var(--text-muted);
+      font-size: 0.88rem;
+      padding: 0.8rem 0;
+    }
   </style>
 </head>
 <body>
@@ -405,6 +491,33 @@
             <div id="grounding-info"></div>
           </div>
           <div id="result-segments" class="segments-list"></div>
+          <div id="video-clips-section" class="clip-section" style="display:none">
+            <div class="clip-section-title" style="justify-content:space-between">
+              <div style="display:flex;align-items:center;gap:0.5rem">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                영상 클립
+                <span id="clip-count-badge" style="background:var(--accent);color:var(--bg);padding:0.1rem 0.5rem;border-radius:10px;font-size:0.72rem;display:none"></span>
+              </div>
+              <button id="btn-clip" class="btn btn-accent btn-sm" onclick="triggerClip()" style="font-size:0.82rem;padding:0.35rem 0.9rem">
+                ✂ 클립 자르기
+              </button>
+            </div>
+            <div id="video-clips-list"></div>
+
+            <div id="merge-section" style="display:none;margin-top:1rem;border-top:1px solid var(--border);padding-top:1rem">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.8rem">
+                <span style="font-size:0.85rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;display:flex;align-items:center;gap:0.4rem">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M8 6l4-4 4 4M12 2v13M3 18l3 3 3-3M6 15v6M15 18l3 3 3-3M18 15v6"/></svg>
+                  머지 결과
+                </span>
+                <button id="btn-merge" class="btn btn-sm" onclick="triggerMerge()"
+                  style="font-size:0.82rem;padding:0.35rem 0.9rem;background:var(--primary);color:#fff">
+                  ⛓ 클립 합치기
+                </button>
+              </div>
+              <div id="merge-result"></div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -501,12 +614,19 @@
     }
 
     let pollTimer = null;
+    let clipPollTimer = null;
+    let currentQueryId = null;
 
     {% if query_id %}
     document.addEventListener('DOMContentLoaded', function() {
-      pollResult('{{ query_id }}');
+      currentQueryId = '{{ query_id }}';
+      pollResult(currentQueryId);
     });
     {% endif %}
+
+    function isVideoFile(sourceFile) {
+      return /\.(mp4|mkv|avi|mov|wmv|flv|webm|m4v)$/i.test(sourceFile || '');
+    }
 
     function pollResult(queryId) {
       if (pollTimer) clearInterval(pollTimer);
@@ -521,6 +641,20 @@
             document.getElementById('result-text').innerHTML = formatAnswer(data.result_text || '(결과 없음)');
             renderSegments(data.retrieved_segments || []);
             renderGrounding(data.grounding || {});
+
+            // 인용된 출처 중 영상 파일이 있으면 클립 섹션 + 버튼 표시
+            const hasVideoSources = (data.retrieved_segments || []).some(
+              s => s.cited && isVideoFile(s.source_file)
+            );
+            if (hasVideoSources) {
+              document.getElementById('video-clips-section').style.display = 'block';
+              if (data.video_clips && data.video_clips.length > 0) {
+                renderVideoClips(data.video_clips);
+              } else {
+                document.getElementById('video-clips-list').innerHTML =
+                  '<div style="color:var(--text-muted);font-size:0.85rem;padding:0.4rem 0">클립 자르기 버튼을 눌러 영상 구간을 추출하세요.</div>';
+              }
+            }
           } else if (data.status === 'failed') {
             clearInterval(pollTimer);
             document.getElementById('result-text').textContent = '오류: ' + (data.error_message || '알 수 없는 오류');
@@ -530,6 +664,194 @@
           }
         } catch (e) {}
       }, 2000);
+    }
+
+    async function triggerClip() {
+      if (!currentQueryId) return;
+      const btn = document.getElementById('btn-clip');
+      const list = document.getElementById('video-clips-list');
+
+      btn.disabled = true;
+      btn.textContent = '⏳ 생성 중...';
+      list.innerHTML = '<div class="clip-loading"><span class="spinner"></span>ffmpeg으로 클립을 생성 중입니다...</div>';
+
+      try {
+        const res = await fetch(API + '/api/llm/query/' + currentQueryId + '/clip/', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrfToken() },
+        });
+        if (!res.ok) {
+          const err = await res.json();
+          list.innerHTML = `<div style="color:var(--error);font-size:0.85rem;padding:0.4rem 0">${err.error || '오류가 발생했습니다.'}</div>`;
+          btn.disabled = false;
+          btn.textContent = '✂ 클립 자르기';
+          return;
+        }
+        // 태스크 dispatch 완료 → 폴링 시작
+        startClipPolling(currentQueryId, 0);
+      } catch (e) {
+        list.innerHTML = `<div style="color:var(--error);font-size:0.85rem;padding:0.4rem 0">요청 실패: ${e.message}</div>`;
+        btn.disabled = false;
+        btn.textContent = '✂ 클립 자르기';
+      }
+    }
+
+    function startClipPolling(queryId, attempt) {
+      if (clipPollTimer) clearTimeout(clipPollTimer);
+      const MAX_ATTEMPTS = 60; // 120초 최대 대기
+      if (attempt >= MAX_ATTEMPTS) {
+        document.getElementById('video-clips-list').innerHTML =
+          '<div style="color:var(--text-muted);font-size:0.85rem;padding:0.5rem 0">클립 생성 대기 시간이 초과되었습니다.</div>';
+        const btn = document.getElementById('btn-clip');
+        btn.disabled = false;
+        btn.textContent = '✂ 클립 자르기';
+        return;
+      }
+      clipPollTimer = setTimeout(async () => {
+        try {
+          const res = await fetch(API + '/api/llm/query/' + queryId + '/');
+          const data = await res.json();
+          if (data.video_clips && data.video_clips.length > 0) {
+            renderVideoClips(data.video_clips);
+            const btn = document.getElementById('btn-clip');
+            btn.disabled = false;
+            btn.textContent = '✂ 클립 자르기';
+          } else {
+            startClipPolling(queryId, attempt + 1);
+          }
+        } catch (e) {
+          startClipPolling(queryId, attempt + 1);
+        }
+      }, 2000);
+    }
+
+    function getCsrfToken() {
+      return document.cookie.split('; ').find(r => r.startsWith('csrftoken='))?.split('=')[1] || '';
+    }
+
+    async function triggerMerge() {
+      if (!currentQueryId) return;
+      const btn = document.getElementById('btn-merge');
+      const result = document.getElementById('merge-result');
+
+      btn.disabled = true;
+      btn.textContent = '⏳ 합치는 중...';
+      result.innerHTML = '<div class="clip-loading"><span class="spinner"></span>클립을 하나로 합치는 중입니다...</div>';
+
+      try {
+        const res = await fetch(API + '/api/llm/query/' + currentQueryId + '/merge/', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrfToken() },
+        });
+        if (!res.ok) {
+          const err = await res.json();
+          result.innerHTML = `<div style="color:var(--error);font-size:0.85rem;padding:0.4rem 0">${err.error || '오류가 발생했습니다.'}</div>`;
+          btn.disabled = false;
+          btn.textContent = '⛓ 클립 합치기';
+          return;
+        }
+        startMergePolling(currentQueryId, 0);
+      } catch (e) {
+        result.innerHTML = `<div style="color:var(--error);font-size:0.85rem;padding:0.4rem 0">요청 실패: ${e.message}</div>`;
+        btn.disabled = false;
+        btn.textContent = '⛓ 클립 합치기';
+      }
+    }
+
+    let mergePollTimer = null;
+
+    function startMergePolling(queryId, attempt) {
+      if (mergePollTimer) clearTimeout(mergePollTimer);
+      const MAX_ATTEMPTS = 60;
+      if (attempt >= MAX_ATTEMPTS) {
+        document.getElementById('merge-result').innerHTML =
+          '<div style="color:var(--text-muted);font-size:0.85rem;padding:0.5rem 0">머지 대기 시간이 초과되었습니다.</div>';
+        const btn = document.getElementById('btn-merge');
+        btn.disabled = false;
+        btn.textContent = '⛓ 클립 합치기';
+        return;
+      }
+      mergePollTimer = setTimeout(async () => {
+        try {
+          const res = await fetch(API + '/api/llm/query/' + queryId + '/');
+          const data = await res.json();
+          if (data.merged_clip && data.merged_clip.status) {
+            renderMergeResult(data.merged_clip);
+            const btn = document.getElementById('btn-merge');
+            btn.disabled = false;
+            btn.textContent = '⛓ 클립 합치기';
+          } else {
+            startMergePolling(queryId, attempt + 1);
+          }
+        } catch (e) {
+          startMergePolling(queryId, attempt + 1);
+        }
+      }, 2000);
+    }
+
+    function renderMergeResult(merged) {
+      const el = document.getElementById('merge-result');
+      if (merged.status === 'success') {
+        el.innerHTML = `
+          <div class="clip-card clip-success">
+            <div class="clip-info">
+              <div class="clip-meta">
+                <span class="clip-status clip-status-success">완료</span>
+              </div>
+              <div class="clip-filename" title="${merged.merged_filename || ''}">${merged.merged_filename || ''}</div>
+            </div>
+            <div class="clip-actions">
+              <a class="btn-download" href="${merged.merged_url}" download="${merged.merged_filename || ''}">다운로드</a>
+            </div>
+          </div>`;
+      } else {
+        const msg = merged.error || merged.status || '알 수 없는 오류';
+        el.innerHTML = `<div style="color:var(--error);font-size:0.85rem;padding:0.4rem 0">머지 실패: ${msg}</div>`;
+      }
+    }
+
+    function renderVideoClips(clips) {
+      const section = document.getElementById('video-clips-section');
+      const list = document.getElementById('video-clips-list');
+      const badge = document.getElementById('clip-count-badge');
+      section.style.display = 'block';
+
+      const successCount = clips.filter(c => c.status === 'success').length;
+      if (successCount > 0) {
+        badge.textContent = successCount + '개';
+        badge.style.display = 'inline-block';
+        document.getElementById('merge-section').style.display = 'block';
+      }
+
+      if (!clips.length) {
+        list.innerHTML = '<div style="color:var(--text-muted);font-size:0.85rem;padding:0.5rem 0">생성된 클립이 없습니다.</div>';
+        return;
+      }
+
+      list.innerHTML = clips.map(clip => {
+        const statusLabel = { success: '완료', not_found: '파일 없음', failed: '실패', skipped: '건너뜀' }[clip.status] || clip.status;
+        const cardClass = `clip-card clip-${clip.status}`;
+        const downloadBtn = clip.status === 'success' && clip.clip_url
+          ? `<a class="btn-download" href="${clip.clip_url}" download="${clip.clip_filename || ''}">다운로드</a>`
+          : '';
+        const errorNote = clip.error
+          ? `<span style="font-size:0.78rem;color:var(--error)">${clip.error}</span>`
+          : '';
+        return `
+          <div class="${cardClass}">
+            <div class="clip-info">
+              <div class="clip-meta">
+                <span style="background:var(--primary);color:#fff;padding:0.1rem 0.4rem;border-radius:4px;font-size:0.75rem;font-weight:600">${clip.citation_tag || ''}</span>
+                <span class="clip-time">${clip.start_time || '?'} ~ ${clip.end_time || '?'}</span>
+                <span class="clip-status clip-status-${clip.status}">${statusLabel}</span>
+              </div>
+              <div class="clip-filename" title="${clip.source_file || ''}">${clip.source_file || ''}</div>
+              ${clip.clip_filename ? `<div style="font-size:0.78rem;color:var(--text-muted);font-family:monospace">${clip.clip_filename}</div>` : ''}
+              ${errorNote}
+            </div>
+            <div class="clip-actions">${downloadBtn}</div>
+          </div>`;
+      }).join('');
     }
 
     function setStatus(status) {

@@ -135,3 +135,6 @@ RAG_TOP_K = int(os.getenv("RAG_TOP_K", "5"))
 RAG_CHUNK_SIZE = int(os.getenv("RAG_CHUNK_SIZE", "500"))
 RAG_CHUNK_OVERLAP = int(os.getenv("RAG_CHUNK_OVERLAP", "50"))
 RAG_RELEVANCE_THRESHOLD = float(os.getenv("RAG_RELEVANCE_THRESHOLD", "0.25"))
+
+VIDEO_SOURCE_DIR = os.getenv("VIDEO_SOURCE_DIR", "/data/videos")
+VIDEO_CLIPS_DIR  = os.getenv("VIDEO_CLIPS_DIR",  "/data/clips")

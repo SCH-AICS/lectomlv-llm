@@ -49,6 +49,16 @@ class LLMQuery(models.Model):
         blank=True,
         help_text="Grounded RAG 검증 결과 (faithfulness, citation 정보)",
     )
+    video_clips = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="인용된 영상 구간의 ffmpeg 클립 생성 결과",
+    )
+    merged_clip = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="클립 머지 결과 (merged_filename, merged_url, status)",
+    )
     error_message = models.TextField(blank=True, default="")
 
     created_at = models.DateTimeField(auto_now_add=True)

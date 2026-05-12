@@ -33,6 +33,8 @@ class LLMQueryResultSerializer(serializers.ModelSerializer):
             "result_text",
             "retrieved_segments",
             "grounding",
+            "video_clips",
+            "merged_clip",
             "error_message",
             "created_at",
             "completed_at",

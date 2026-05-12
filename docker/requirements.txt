@@ -11,3 +11,4 @@ httpx>=0.28,<1.0
 sentence-transformers>=3.3,<4.0
 faiss-cpu>=1.9,<2.0
 numpy>=1.26,<2.0
+imageio-ffmpeg>=0.5,<1.0

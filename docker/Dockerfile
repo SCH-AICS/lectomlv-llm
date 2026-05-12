@@ -11,7 +11,7 @@ RUN pip install --upgrade pip && pip install -r requirements.txt
 
 COPY . .
 
-RUN mkdir -p /app/faiss_index /app/staticfiles
+RUN mkdir -p /app/faiss_index /app/staticfiles /data/videos /data/clips
 
 RUN python manage.py collectstatic --noinput 2>/dev/null || true
 

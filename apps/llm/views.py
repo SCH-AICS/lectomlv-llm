@@ -4,9 +4,9 @@ from rest_framework import generics, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import LLMQuery
+from .models import LLMQuery, QueryStatus
 from .serializers import LLMQueryCreateSerializer, LLMQueryResultSerializer
-from .tasks import process_llm_query
+from .tasks import clip_video_segments, merge_video_clips, process_llm_query
 
 
 class LLMQueryView(APIView):
@@ -98,3 +98,60 @@ class LLMQueryListView(generics.ListAPIView):
 
     queryset = LLMQuery.objects.all()
     serializer_class = LLMQueryResultSerializer
+
+
+class ClipVideoView(APIView):
+    """인용된 영상 구간을 ffmpeg으로 클리핑 (수동 트리거)"""
+
+    def post(self, request, pk):
+        try:
+            query = LLMQuery.objects.get(pk=pk)
+        except LLMQuery.DoesNotExist:
+            return Response({"error": "쿼리를 찾을 수 없습니다."}, status=status.HTTP_404_NOT_FOUND)
+
+        if query.status != QueryStatus.COMPLETED:
+            return Response(
+                {"error": "RAG 쿼리가 완료된 후에만 클립을 생성할 수 있습니다."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        cited_sources = [s for s in (query.retrieved_segments or []) if s.get("cited")]
+        if not cited_sources:
+            return Response({"error": "인용된 출처가 없습니다."}, status=status.HTTP_400_BAD_REQUEST)
+
+        query.video_clips = []
+        query.save(update_fields=["video_clips"])
+
+        task = clip_video_segments.delay(query.id, cited_sources)
+
+        return Response(
+            {"message": "클립 생성이 시작되었습니다.", "task_id": task.id},
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+
+class MergeVideoView(APIView):
+    """성공한 클립들을 하나의 mp4로 머지 (수동 트리거)"""
+
+    def post(self, request, pk):
+        try:
+            query = LLMQuery.objects.get(pk=pk)
+        except LLMQuery.DoesNotExist:
+            return Response({"error": "쿼리를 찾을 수 없습니다."}, status=status.HTTP_404_NOT_FOUND)
+
+        success_clips = [c for c in (query.video_clips or []) if c.get("status") == "success"]
+        if not success_clips:
+            return Response(
+                {"error": "머지할 성공한 클립이 없습니다. 먼저 클립 자르기를 실행하세요."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        query.merged_clip = {}
+        query.save(update_fields=["merged_clip"])
+
+        task = merge_video_clips.delay(query.id)
+
+        return Response(
+            {"message": "머지가 시작되었습니다.", "task_id": task.id},
+            status=status.HTTP_202_ACCEPTED,
+        )
