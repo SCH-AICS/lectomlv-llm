@@ -119,10 +119,24 @@ class ClipVideoView(APIView):
         if not cited_sources:
             return Response({"error": "인용된 출처가 없습니다."}, status=status.HTTP_400_BAD_REQUEST)
 
+        from apps.llm.services.video_clip_service import ASPECT_RATIO_PRESETS
+        aspect_ratio   = request.data.get("aspect_ratio") or None
+        with_subtitles = bool(request.data.get("with_subtitles", True))
+
+        if aspect_ratio and aspect_ratio not in ASPECT_RATIO_PRESETS:
+            return Response(
+                {"error": f"지원하지 않는 비율입니다. 사용 가능: {list(ASPECT_RATIO_PRESETS)}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         query.video_clips = []
         query.save(update_fields=["video_clips"])
 
-        task = clip_video_segments.delay(query.id, cited_sources)
+        task = clip_video_segments.delay(
+            query.id, cited_sources,
+            aspect_ratio=aspect_ratio,
+            with_subtitles=with_subtitles,
+        )
 
         return Response(
             {"message": "클립 생성이 시작되었습니다.", "task_id": task.id},

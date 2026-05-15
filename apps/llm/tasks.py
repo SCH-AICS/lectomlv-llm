@@ -97,25 +97,33 @@ def merge_video_clips(self, query_id: int):
 
 
 @shared_task(bind=True, max_retries=1)
-def clip_video_segments(self, query_id: int, cited_sources: list[dict]):
+def clip_video_segments(
+    self,
+    query_id: int,
+    cited_sources: list[dict],
+    aspect_ratio: str | None = None,
+    with_subtitles: bool = True,
+):
     """
     RAG 인용 출처 중 영상 파일에 해당하는 구간을 ffmpeg으로 잘라 클립을 생성.
 
-    Parameters
-    ----------
-    query_id : int
-        LLMQuery PK — 완료 후 video_clips 필드를 업데이트한다.
-    cited_sources : list[dict]
-        process_llm_query 에서 넘겨온 cited=True 세그먼트 목록.
-        각 항목에 source_file, start_time, end_time, citation_tag 포함.
+    aspect_ratio : "16:9" | "9:16" | "1:1" | "4:3" | None (원본 유지)
+    with_subtitles : True이면 세그먼트 transcript를 자막으로 burn-in
     """
     from apps.llm.models import LLMQuery
     from apps.llm.services.video_clip_service import VideoClipService
 
-    logger.info("Query %d: 영상 클리핑 시작 (%d개)", query_id, len(cited_sources))
+    logger.info(
+        "Query %d: 클리핑 시작 (%d개, ratio=%s, subtitle=%s)",
+        query_id, len(cited_sources), aspect_ratio, with_subtitles,
+    )
     try:
         service = VideoClipService()
-        clips = service.make_clips(cited_sources)
+        clips = service.make_clips(
+            cited_sources,
+            aspect_ratio=aspect_ratio,
+            with_subtitles=with_subtitles,
+        )
 
         if not clips:
             logger.info("Query %d: 영상 출처 없음, 클리핑 건너뜀", query_id)
@@ -124,10 +132,7 @@ def clip_video_segments(self, query_id: int, cited_sources: list[dict]):
         LLMQuery.objects.filter(id=query_id).update(video_clips=clips)
 
         success = sum(1 for c in clips if c["status"] == "success")
-        logger.info(
-            "Query %d: 클리핑 완료 — 성공 %d / 전체 %d",
-            query_id, success, len(clips),
-        )
+        logger.info("Query %d: 클리핑 완료 — 성공 %d / 전체 %d", query_id, success, len(clips))
         return {"query_id": query_id, "clips": len(clips), "success": success}
 
     except Exception as exc:

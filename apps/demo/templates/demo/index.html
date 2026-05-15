@@ -492,15 +492,28 @@
           </div>
           <div id="result-segments" class="segments-list"></div>
           <div id="video-clips-section" class="clip-section" style="display:none">
-            <div class="clip-section-title" style="justify-content:space-between">
+            <div class="clip-section-title" style="justify-content:space-between;flex-wrap:wrap;gap:0.5rem">
               <div style="display:flex;align-items:center;gap:0.5rem">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
                 영상 클립
                 <span id="clip-count-badge" style="background:var(--accent);color:var(--bg);padding:0.1rem 0.5rem;border-radius:10px;font-size:0.72rem;display:none"></span>
               </div>
-              <button id="btn-clip" class="btn btn-accent btn-sm" onclick="triggerClip()" style="font-size:0.82rem;padding:0.35rem 0.9rem">
-                ✂ 클립 자르기
-              </button>
+              <div style="display:flex;align-items:center;gap:0.6rem;flex-wrap:wrap">
+                <label style="display:flex;align-items:center;gap:0.3rem;font-size:0.82rem;color:var(--text-muted);cursor:pointer">
+                  <input type="checkbox" id="opt-subtitle" checked style="accent-color:var(--accent)">
+                  자막
+                </label>
+                <select id="opt-ratio" style="padding:0.3rem 0.5rem;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:0.82rem;cursor:pointer">
+                  <option value="">원본 비율</option>
+                  <option value="16:9">16:9 (가로)</option>
+                  <option value="9:16">9:16 (세로/쇼츠)</option>
+                  <option value="1:1">1:1 (정사각)</option>
+                  <option value="4:3">4:3</option>
+                </select>
+                <button id="btn-clip" class="btn btn-accent btn-sm" onclick="triggerClip()" style="font-size:0.82rem;padding:0.35rem 0.9rem">
+                  ✂ 클립 자르기
+                </button>
+              </div>
             </div>
             <div id="video-clips-list"></div>
 
@@ -668,8 +681,10 @@
 
     async function triggerClip() {
       if (!currentQueryId) return;
-      const btn = document.getElementById('btn-clip');
-      const list = document.getElementById('video-clips-list');
+      const btn       = document.getElementById('btn-clip');
+      const list      = document.getElementById('video-clips-list');
+      const ratio     = document.getElementById('opt-ratio')?.value || null;
+      const subtitles = document.getElementById('opt-subtitle')?.checked ?? true;
 
       btn.disabled = true;
       btn.textContent = '⏳ 생성 중...';
@@ -679,6 +694,7 @@
         const res = await fetch(API + '/api/llm/query/' + currentQueryId + '/clip/', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrfToken() },
+          body: JSON.stringify({ aspect_ratio: ratio || null, with_subtitles: subtitles }),
         });
         if (!res.ok) {
           const err = await res.json();
@@ -844,6 +860,7 @@
                 <span style="background:var(--primary);color:#fff;padding:0.1rem 0.4rem;border-radius:4px;font-size:0.75rem;font-weight:600">${clip.citation_tag || ''}</span>
                 <span class="clip-time">${clip.start_time || '?'} ~ ${clip.end_time || '?'}</span>
                 <span class="clip-status clip-status-${clip.status}">${statusLabel}</span>
+                ${clip.clip_filename && clip.clip_filename.match(/_(16x9|9x16|1x1|4x3)\.mp4$/) ? `<span style="background:var(--border);color:var(--text-muted);padding:0.1rem 0.45rem;border-radius:10px;font-size:0.73rem">${clip.clip_filename.match(/_(16x9|9x16|1x1|4x3)\.mp4$/)[1].replace('x',':')}</span>` : ''}
               </div>
               <div class="clip-filename" title="${clip.source_file || ''}">${clip.source_file || ''}</div>
               ${clip.clip_filename ? `<div style="font-size:0.78rem;color:var(--text-muted);font-family:monospace">${clip.clip_filename}</div>` : ''}

@@ -230,7 +230,7 @@ class RAGService:
     def _build_segment_list(citation_info: dict) -> list[dict]:
         fields = (
             "segment_id", "lecture_id", "start_time", "end_time",
-            "source_file", "relevance_score", "citation_tag",
+            "source_file", "relevance_score", "citation_tag", "transcript",
         )
         segments = []
         for src in citation_info["cited_sources"]:
